@@ -1,0 +1,285 @@
+import numpy as np
+import random
+import matplotlib.pyplot as plt
+
+# Step 1: Create an 8x8 grid
+GRID_SIZE = 8
+B_counter = 1  # Counter to track different B generations
+A_counter = 1  # Counter to track different A generations
+C_counter = 1  # Counter to track different C generations
+D_counter = 1  # Counter to track different D generations
+MIN_MOVEMENT_ICONS = 12  # Minimum target number of movement icons
+MAX_MOVEMENT_ICONS = 15  # Maximum target number of movement icons
+MAX_RETRIES = 50  # Maximum number of retries for grid generation
+
+def create_grid():
+    return [["" for _ in range(GRID_SIZE)] for _ in range(GRID_SIZE)]
+
+# Step 2: Define Movement Icons & Movement Rules with Wall Collision Checks
+def valid_moves(x, y, moves, grid):
+    valid_positions = []
+    for dx, dy in moves:
+        final_x, final_y = x + dx, y + dy
+        if not is_within_grid(final_x, final_y):
+            # Adjust the position to be within the grid
+            while not is_within_grid(final_x, final_y):
+                final_x -= int(dx / abs(dx)) if dx != 0 else 0
+                final_y -= int(dy / abs(dy)) if dy != 0 else 0
+        if is_within_grid(final_x, final_y) and grid[final_x][final_y] == "":
+            valid_positions.append((final_x, final_y))
+    return valid_positions
+
+MOVEMENT_RULES = {
+    "O": lambda x, y, grid: valid_moves(x, y, [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1)], grid),  # 1 space in all 8 directions
+    "X": lambda x, y, grid: valid_moves(x, y, [(2, 2), (-2, -2), (2, -2), (-2, 2)], grid),  # Exactly 2 diagonal spaces
+    "V": lambda x, y, grid: valid_moves(x, y, [(-3, -3), (-3, 3), (3, 0)], grid),  # 3 spaces diagonally up-left, diagonally up-right, or straight down
+    "H": lambda x, y, grid: valid_moves(x, y, [(4, 0), (-4, 0), (0, 4), (0, -4)], grid)  # 4 spaces orthogonally
+}
+
+def is_within_grid(x, y):
+    return 0 <= x < GRID_SIZE and 0 <= y < GRID_SIZE
+
+# Step 3: Randomly place a Movement Icon on the grid
+def place_random_icon(grid, icon_counter):
+    while True:
+        row, col = random.randint(0, GRID_SIZE - 1), random.randint(0, GRID_SIZE - 1)
+        if grid[row][col] == "":
+            break
+    icon = random.choice(list(MOVEMENT_RULES.keys()))
+    grid[row][col] = f"A{icon_counter}-{icon}"
+    print(f"Placed initial movement icon A{icon_counter}-{icon} at ({row}, {col})")
+    return grid, row, col, icon
+
+# Step 4: Place B icons on the final valid spaces after movement
+def place_B_icons(grid, row, col, icon, B_label):
+    b_positions = []
+    for final_x, final_y in MOVEMENT_RULES[icon.split('-')[-1]](row, col, grid):
+        grid[final_x][final_y] = f"B{B_label}"
+        b_positions.append((final_x, final_y))
+        print(f"Placed B{B_label} at ({final_x}, {final_y})")
+
+    return grid, b_positions
+
+# Step 5: Generate D Icons from C Movement Icon
+def place_D_icons_from_C(grid, row, col, C_label):
+    for nx, ny in MOVEMENT_RULES[grid[row][col].split('-')[-1]](row, col, grid):
+        grid[nx][ny] = f"D{C_label}"
+        print(f"Placed D{C_label} at ({nx}, {ny})")
+    return grid
+
+# Step 6: Place E Icons from D Movement Icon
+def place_E_icons_from_D(grid, row, col, D_label):
+    for nx, ny in MOVEMENT_RULES[grid[row][col].split('-')[-1]](row, col, grid):
+        grid[nx][ny] = f"E{D_label}"
+        print(f"Placed E{D_label} at ({nx}, {ny})")
+    return grid
+
+# Step 7: Convert B to new Movement Icons, ensuring the puzzle remains solvable
+def convert_B_to_icons(grid, total_movement_icons):
+    global B_counter, A_counter, C_counter, D_counter
+    latest_x, latest_y = None, None
+    while B_counter < total_movement_icons:
+        latest_B_label = f"B{B_counter}"
+        b_positions = [(i, j) for i in range(GRID_SIZE) for j in range(GRID_SIZE) if grid[i][j] == latest_B_label]
+        
+        if not b_positions:
+            print(f"No positions found for {latest_B_label}")
+            return create_grid(), (None, None)
+        
+        # Create Movement Icon A
+        chosen_x, chosen_y = random.choice(b_positions)
+        grid[chosen_x][chosen_y] = f"A{A_counter}-{random.choice(list(MOVEMENT_RULES.keys()))}"
+        latest_x, latest_y = chosen_x, chosen_y
+        print(f"Converted {latest_B_label} at ({chosen_x}, {chosen_y}) to A{A_counter}")
+        B_counter += 1
+        A_counter += 1
+
+        if len(b_positions) > 1:
+            # Create Movement Icon C if possible
+            remaining_positions = [pos for pos in b_positions if pos != (chosen_x, chosen_y)]
+            if remaining_positions:
+                chosen_x, chosen_y = random.choice(remaining_positions)
+                grid[chosen_x][chosen_y] = f"C{B_counter-1}-{random.choice(list(MOVEMENT_RULES.keys()))}"
+                grid = place_D_icons_from_C(grid, chosen_x, chosen_y, B_counter-1)
+                print(f"Converted {latest_B_label} at ({chosen_x}, {chosen_y}) to C{B_counter-1}")
+                C_counter += 1
+        
+        # Skip placing Bs if it's the last Movement Icon
+        if B_counter < total_movement_icons:
+            print(f"Placing new B icons from A{A_counter-1} at ({latest_x}, {latest_y})")
+            grid, new_b_positions = place_B_icons(grid, latest_x, latest_y, grid[latest_x][latest_y], B_counter)
+            if not new_b_positions:
+                print(f"Failed to place new B icons for {latest_B_label}, continuing...")
+
+        # Convert D to new Movement Icon and generate E icons
+        d_positions = [(i, j) for i in range(GRID_SIZE) for j in range(GRID_SIZE) if grid[i][j].startswith(f"D{B_counter-1}")]
+        if d_positions:
+            chosen_x, chosen_y = random.choice(d_positions)
+            grid[chosen_x][chosen_y] = f"D{D_counter}-{random.choice(list(MOVEMENT_RULES.keys()))}"
+            grid = place_E_icons_from_D(grid, chosen_x, chosen_y, D_counter)
+            print(f"Converted D at ({chosen_x}, {chosen_y}) to new Movement Icon D{D_counter}")
+            D_counter += 1
+        
+        if B_counter < total_movement_icons and not any("B" in cell for row in grid for cell in row):
+            print("No B icons found after conversion")
+            return create_grid(), (None, None)
+    
+    return grid, (latest_x, latest_y)
+
+# Step 8: Create Js
+def create_js(grid):
+    print("Starting J creation process...")
+    
+    # Place a J in every remaining empty cell
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            if grid[i][j] == "":
+                grid[i][j] = "J"
+    print("Placed J in all empty cells.")
+    
+    # Locate all A icons and sort them in descending order
+    a_positions = []
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            cell = grid[i][j]
+            if cell and cell.startswith("A"):
+                a_positions.append((i, j, int(cell[1:].split('-')[0])))
+    a_positions.sort(key=lambda x: x[2], reverse=True)
+    
+    if not a_positions:
+        print("No A icons found, skipping J creation process.")
+        return grid  # No A found, skip the process
+
+    # Iterate over each A icon, starting from the highest numbered A
+    for a_x, a_y, a_num in a_positions:
+        if a_num < 10:  # Stop generating Js after J9
+            break
+        print(f"Checking A{a_num} at ({a_x}, {a_y})")
+
+        # Temporarily mark the highest A position as empty
+        original_value = grid[a_x][a_y]
+        grid[a_x][a_y] = ""
+
+        # Randomly choose a J cell and try to place a Movement Icon
+        j_positions = [(i, j) for i in range(GRID_SIZE) for j in range(GRID_SIZE) if grid[i][j] == "J"]
+        random.shuffle(j_positions)
+        print(f"J positions shuffled: {j_positions}")
+
+        valid_move_found = False
+        for j_x, j_y in j_positions:
+            for icon in MOVEMENT_RULES.keys():
+                if (a_x, a_y) in MOVEMENT_RULES[icon](j_x, j_y, grid):
+                    grid[j_x][j_y] = f"J{a_num}-{icon}"
+                    print(f"Updated J at ({j_x}, {j_y}) with {icon} icon to reach A{a_num}")
+                    valid_move_found = True
+                    break
+            if valid_move_found:
+                break
+
+        # Restore the original grid state
+        grid[a_x][a_y] = original_value
+
+        if valid_move_found:
+            if a_num == 9:  # Stop generating Js after J9
+                print("J9 generation attempt completed, ending J creation process.")
+                return grid
+            # Found a valid move for this A, continue to the next A
+            continue
+        else:
+            print(f"No valid J cell found for A{a_num}, moving to next A icon.")
+
+    # If no valid J cell found for any A, remove all J icons
+    if not any(cell.startswith("J") and '-' in cell for row in grid for cell in row):
+        print("No valid J cell found for any A, removing all J icons.")
+        for i in range(GRID_SIZE):
+            for j in range(GRID_SIZE):
+                if grid[i][j] == "J":
+                    grid[i][j] = ""
+    
+    return grid
+
+# Step 9: Remove Js with No Movement Icon
+def remove_js_without_movement_icon(grid):
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            if grid[i][j].startswith("J") and '-' not in grid[i][j]:
+                grid[i][j] = ""
+    return grid
+
+# Step 10: Create a second grid without Bs and without As and Cs
+def create_grid_without_Bs_As_Cs(grid):
+    new_grid = create_grid()
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            if "B" not in grid[i][j]:
+                new_grid[i][j] = grid[i][j].split('-')[-1] if "A" in grid[i][j] or "C" in grid[i][j] or "D" in grid[i][j] else grid[i][j]
+    return new_grid
+
+# Step 11: Display the Grid
+def display_grid(grid, start_pos, latest_pos, title, logic_grid=False):
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_xticks(np.arange(GRID_SIZE + 1) - 0.5, minor=True)
+    ax.set_yticks(np.arange(GRID_SIZE + 1) - 0.5, minor=True)
+    ax.grid(which="minor", color="grey", linestyle='-', linewidth=1)  # Interior grid lines grey
+    ax.tick_params(which="both", bottom=False, left=False, labelbottom=False, labelleft=False)
+
+    start_x, start_y = start_pos  # Extract start position
+    latest_x, latest_y = latest_pos  # Extract latest Movement Icon position
+    
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            if grid[i][j] != "":
+                if (i, j) == (start_x, start_y):
+                    color = 'green'
+                elif (i, j) == (latest_x, latest_y):
+                    color = 'red'
+                else:
+                    color = 'black'
+                fontsize = 12 if logic_grid else 13  # Reduced by 2 points
+                label = grid[i][j] if logic_grid else grid[i][j].split('-')[-1] if "D" not in grid[i][j] and "E" not in grid[i][j] else ""
+                if label == "H":
+                    label = "□"  # Display H as a hollow square
+                    fontsize += 1  # Increase font size by 1 point (net +1)
+                elif label == "V":
+                    label = "▽"  # Display V as a hollow upside triangle
+                    fontsize += 1  # Increase font size by 1 point (net +1)
+                elif label == "O":
+                    label = "◯"  # Display O as a hollow circle
+                ax.text(j, GRID_SIZE - 1 - i, label, ha='center', va='center', fontsize=fontsize, color=color)
+
+    plt.title(title)
+    plt.show()
+
+# Step 12: Run the Grid Generation with Retry Mechanism
+def generate_grid_with_retries():
+    for attempt in range(1, MAX_RETRIES + 1):
+        global B_counter, A_counter, C_counter, D_counter
+        B_counter = 1  # Reset B_counter for each new attempt
+        A_counter = 1  # Reset A_counter for each new attempt
+        C_counter = 1  # Reset C_counter for each new attempt
+        D_counter = 1  # Reset D_counter for each new attempt
+        total_movement_icons = random.randint(MIN_MOVEMENT_ICONS, MAX_MOVEMENT_ICONS)
+        grid = create_grid()
+        grid, row, col, icon = place_random_icon(grid, A_counter)
+        A_counter += 1  # Increase A label counter for the next Movement Icon
+        grid, b_positions = place_B_icons(grid, row, col, icon, B_counter)
+        grid, latest_pos = convert_B_to_icons(grid, total_movement_icons)
+        grid = create_js(grid)  # Call the new Create Js step
+        grid = remove_js_without_movement_icon(grid)  # Remove Js without Movement Icon
+        
+        # Check if a valid grid was generated
+        if any(cell for row in grid for cell in row) and B_counter >= MIN_MOVEMENT_ICONS:
+            grid_without_Bs_As_Cs = create_grid_without_Bs_As_Cs(grid)
+            return grid, grid_without_Bs_As_Cs, (row, col), latest_pos
+        
+        print(f"Attempt {attempt} failed, retrying...")
+    
+    raise RuntimeError("Failed to generate a valid grid after maximum retries.")
+
+# Step 13: Generate and display the grids
+try:
+    grid, grid_without_Bs_As_Cs, start_pos, latest_pos = generate_grid_with_retries()
+    display_grid(grid, start_pos, latest_pos, "Logic Grid", logic_grid=True)
+    display_grid(grid_without_Bs_As_Cs, start_pos, latest_pos, "Display Grid")
+except RuntimeError as e:
+    print(e)
